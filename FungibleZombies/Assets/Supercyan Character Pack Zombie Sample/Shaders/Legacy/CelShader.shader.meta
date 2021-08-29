@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: b148589e47d02de4c9a7e8720f07a016
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures:
+  - _MainTex: {instanceID: 0}
+  - Ramp: {fileID: 2800000, guid: 0526973abccf1de4cb69fb62fff5c6bb, type: 3}
+  - _texcoord: {instanceID: 0}
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
