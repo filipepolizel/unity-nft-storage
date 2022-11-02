@@ -9,8 +9,8 @@ using System.Net.Http.Headers;
 using System.Web;
 using System.Text;
 using NFTStorage.JSONSerialization;
+using UnityEngine.Networking;
 
-// This namespace defines nft.storage API interfaces (to be used for JSON parsing)
 namespace NFTStorage.JSONSerialization
 {
     [Serializable]
@@ -161,7 +161,7 @@ namespace NFTStorage
             {
                 if (requestClient == null)
                 {
-                  requestClient = nftClient;
+                    requestClient = nftClient;
                 }
                 HttpRequestMessage request = new HttpRequestMessage(method, uri);
                 HttpResponseMessage response = await requestClient.SendAsync(request);
@@ -169,7 +169,7 @@ namespace NFTStorage
                 string responseBody = await response.Content.ReadAsStringAsync();
                 return responseBody;
             }
-            catch(HttpRequestException e)
+            catch (HttpRequestException e)
             {
                 Debug.Log("HTTP Request Exception: " + e.Message);
                 return null;
@@ -182,27 +182,76 @@ namespace NFTStorage
         <param name="paramString">The data to be uploaded, formatted as a string</param>
         <returns>A "Task" which result is a string, containing the raw response data</returns>
         */
-        private async Task<string> Upload(string uri, string paramString)
+        private async Task<string> Upload(string uri, string pathFile)
         {
+            byte[] bytes = System.IO.File.ReadAllBytes(pathFile);
             try
             {
-                using (HttpContent content = new StringContent(paramString))
-                {
-                    content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                    HttpResponseMessage response = await nftClient.PostAsync(uri, content);
-                    response.EnsureSuccessStatusCode();
-                    Stream responseStream = await response.Content.ReadAsStreamAsync();
-                    StreamReader reader = new StreamReader(responseStream);
-                    return reader.ReadToEnd();
-                }
+                    using (var content = new ByteArrayContent(bytes))
+                    {
+                        content.Headers.ContentType = new MediaTypeHeaderValue("*/*");
+
+                        nftClient.Timeout = new TimeSpan(1, 0, 0);// 1 hour should be enough probably
+
+                        //Send it
+                        print("Uploading...");
+                        var response = await nftClient.PostAsync(uri, content);
+                        response.EnsureSuccessStatusCode();
+                        Stream responseStream = await response.Content.ReadAsStreamAsync();
+                        StreamReader reader = new StreamReader(responseStream);
+                        return reader.ReadToEnd();
+                    }
             }
-            catch(HttpRequestException e)
+            catch (HttpRequestException e)
             {
                 Debug.Log("HTTP Request Exception: " + e.Message);
-                Debug.Log(e);
                 return null;
             }
         }
+
+
+
+
+        UnityWebRequest uwr;
+
+        IEnumerator PostRequest(string url, string filePath)
+        {
+            byte[] dataToPost = System.IO.File.ReadAllBytes(filePath);
+            UploadHandlerRaw uhr = new UploadHandlerRaw(dataToPost);
+
+            uwr = new UnityWebRequest(url, "POST", new DownloadHandlerBuffer(), uhr);
+            uwr.SetRequestHeader("Accept", "application/json");
+            uwr.SetRequestHeader("Authorization", "Bearer " + apiToken);
+            uwr.SetRequestHeader("Content-Type", "*/*");
+
+            yield return uwr.SendWebRequest();
+
+            if (uwr.isNetworkError)
+            {
+                Debug.Log("Error While Sending: " + uwr.error);
+            }
+            else
+            {
+                Debug.Log("Received: " + uwr.downloadHandler.text);
+            }
+        }
+
+        IEnumerator UploadProgressCoroutine()
+        {
+            while (!uwr.isDone)
+            {
+                HandleProgress(uwr.uploadProgress);
+                yield return null;
+            }
+        }
+
+        void HandleProgress(float currentProgress)
+        {
+            print(currentProgress); // upload progrees bettween 0 and 1 
+        }
+
+
+
 
         /**
         <summary>Set API token to be used as authorization header for "nft.storage" HTTP API requests</summary>
@@ -256,9 +305,9 @@ namespace NFTStorage
         */
         public async Task<string> GetFileData(string cid)
         {
-          string requestUri = "https://" + cid + ".ipfs.dweb.link/";
-          string response = await SendHttpRequest(HttpMethod.Get, requestUri, ipfsClient);
-          return response;
+            string requestUri = "https://" + cid + ".ipfs.dweb.link/";
+            string response = await SendHttpRequest(HttpMethod.Get, requestUri, ipfsClient);
+            return response;
         }
 
         /**
@@ -288,29 +337,27 @@ namespace NFTStorage
         }
 
         /**
-        <summary>Upload a string as a file using "nft.storage" HTTP API</summary>
-        <param name="data">The file data stored in the form of text/string.</param>
+        <summary>Upload a file using "nft.storage" HTTP API</summary>
         <returns>A "Task" which result is a "NFTStorageUploadResponse" object, obtained by parsing JSON from "nft.storage" API response (POST /upload endpoint)</returns>
         */
-        public async Task<NFTStorageUploadResponse> UploadDataFromString(string data)
+        public async Task<NFTStorageUploadResponse> UploadDataFromStringHttpClient(string path)
         {
             string requestUri = nftStorageApiUrl + "/upload";
-            string rawResponse = await Upload(requestUri, data);
+            string rawResponse = await Upload(requestUri, path);
             NFTStorageUploadResponse parsedResponse = JsonUtility.FromJson<NFTStorageUploadResponse>(rawResponse);
             return parsedResponse;
         }
-
-        /**
-        <summary>Upload a local file using "nft.storage" HTTP API</summary>
-        <param name="path">The full path of local file to be uploaded</param>
-        <returns>A "Task" which result is a "NFTStorageUploadResponse" object, obtained by parsing JSON from "nft.storage" API response (POST /upload endpoint)</returns>
+        
+        /*
+        <summary>Upload a file using "nft.storage" unitywebrequest </summary>
         */
-        public async Task<NFTStorageUploadResponse> UploadDataFromFile(string path)
+        
+        public void UploadDataFromStringUnityWebrequest(string path)
         {
-            StreamReader reader = new StreamReader(path);
-            string data = reader.ReadToEnd();
-            reader.Close();
-            return await UploadDataFromString(data);
+            string requestUri = nftStorageApiUrl + "/upload";
+            uwr = null;
+            StartCoroutine(PostRequest(requestUri, path));
+            StartCoroutine(UploadProgressCoroutine());
         }
     }
 }
